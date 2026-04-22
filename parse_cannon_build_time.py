@@ -2,7 +2,6 @@ from bs4 import BeautifulSoup
 import json
 import re
 
-# Открываем сохранённый html-файл
 with open("clash/new.html", "r", encoding="utf-8") as f:
     html = f.read()
 
@@ -12,36 +11,50 @@ tables = soup.find_all("table", class_="wikitable")
 target_table = None
 for table in tables:
     headers = [th.get_text(strip=True) for th in table.find_all("th")]
-    # В англ. версии могут быть "Build Time" или "Upgrade Time"
-    if any("Build Time" in h or "Upgrade Time" in h for h in headers):
+    # Ищем основную таблицу по ключевым колонкам
+    if (
+        any(h in ["Build Time", "Время постройки", "Upgrade Time", "Время улучшения"] for h in headers)
+        and any(h in ["Cost", "Стоимость постройки"] for h in headers)
+        and any(h in ["Level", "Уровень"] for h in headers)
+    ):
         target_table = table
         break
 
 if not target_table:
-    print("Таблица с апгрейд-таймингом не найдена.")
+    print("Не удалось найти таблицу с нужными столбцами.")
 else:
     headers = [th.get_text(strip=True) for th in target_table.find_all("th")]
-    level_idx = None
-    time_idx = None
-    for i, header in enumerate(headers):
-        if header.lower() in ["level", "уровень"]:
-            level_idx = i
-        if ("build time" in header.lower() or 
-            "upgrade time" in header.lower() or 
-            "время постройки" in header.lower() or 
-            "время улучшения" in header.lower()):
-            time_idx = i
-    if level_idx is None or time_idx is None:
-        print("Не удалось найти нужные столбцы.")
+    # Выведем заголовки для отладки
+    print("Заголовки:", headers)
+
+    def find_index(possible_names):
+        for idx, name in enumerate(headers):
+            for key in possible_names:
+                if key.lower() in name.lower():
+                    return idx
+        return None
+
+    level_idx = find_index(["level", "уровень"])
+    build_time_idx = find_index(["build time", "upgrade time", "время постройки", "время улучшения"])
+    cost_idx = find_index(["cost", "стоимость постройки"])    
+
+    if None in (level_idx, build_time_idx, cost_idx):
+        print("Не удалось определить индексы нужных столбцов.")
     else:
         data = []
         for row in target_table.find_all("tr")[1:]:
             cells = row.find_all(["td", "th"])
-            if len(cells) > max(level_idx, time_idx):
+            if len(cells) > max(level_idx, build_time_idx, cost_idx):
                 level = cells[level_idx].get_text(strip=True)
-                build_time = cells[time_idx].get_text(strip=True)
+                build_time = cells[build_time_idx].get_text(strip=True)
+                cost = cells[cost_idx].get_text(strip=True)
                 build_time = re.sub(r"\[\d+\]", "", build_time)
-                data.append({"level": level, "build_time": build_time})
-        with open("clash/cannon_build_times.json", "w", encoding="utf-8") as out:
+                cost = re.sub(r"\[\d+\]", "", cost)
+                data.append({
+                    "level": level,
+                    "build_time": build_time,
+                    "cost": cost
+                })
+        with open("clash/cannon_table.json", "w", encoding="utf-8") as out:
             json.dump(data, out, ensure_ascii=False, indent=2)
-        print("Готово! Данные сохранены в clash/cannon_build_times.json")
+        print("Готово! Результат: clash/cannon_table.json")
